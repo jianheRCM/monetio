@@ -62,6 +62,21 @@ def open_mfdataset(
 
 
     """
+
+    # determine if do hourly or daily comparison
+    daily = False
+    if var_list is not None:
+        pm25_var = [
+            "PM25_EC",
+            "PM25_NH4",
+            "PM25_NO3",
+            "PM25_SO4",
+            "PM25_OC",
+            "PM25_OM",
+        ]
+        if any(xvar in var_list for xvar in pm25_var):
+            daily = True
+
     # For CMAQ, times are not in file to concatenate on for different forecast periods,
     # so need to read in one file at a time, calc times, and then merge together.
     if concatenate_forecasts:
@@ -164,7 +179,13 @@ def open_mfdataset(
             if "micrograms" in dset[i].attrs["units"]:
                 dset[i].attrs["units"] = r"$\mu g m^{-3}$"
 
-    return dset
+    if daily:
+        dset2 = dset.resample(time='1D').mean()
+        dset2.attrs = dset.attrs
+    else:
+        dset2 = dset
+
+    return dset2
 
 
 def _get_times(d, drop_duplicates):

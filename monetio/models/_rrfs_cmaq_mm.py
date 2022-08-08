@@ -56,6 +56,22 @@ def open_mfdataset(
     # Get dictionary of summed species for the mechanism of choice.
     dict_sum = dict_species_sums(mech=mech)
 
+    # determine if do hourly or daily comparison
+    daily = False
+    if var_list is not None:
+        print('Input var_list: ', var_list)
+        pm25_var = [
+            "PM25_EC",
+            "PM25_NH4",
+            "PM25_NO3",
+            "PM25_SO4",
+            "PM25_OC",
+            "PM25_OM",
+        ]
+        if any(xvar in var_list for xvar in pm25_var):
+            if surf_only:
+                daily = True
+
     if var_list is not None:
         # Read in only a subset of variables and only do calculations if needed.
         var_list_orig = var_list.copy()  # Keep track of the original list before changes.
@@ -100,6 +116,7 @@ def open_mfdataset(
 
                 var_list.remove(var_sum)
                 list_calc_sum.append(var_sum)
+
         # append the other needed species.
         var_list.append("lat")
         var_list.append("lon")
@@ -163,6 +180,8 @@ def open_mfdataset(
         # Attributes are formatted differently in pm25 file so remove attributes and use those from dynf* files.
         dset_pm25.attrs = {}
         dset = dset.merge(dset_pm25)
+
+    print('list_calc_sum: ', list_calc_sum)
 
     # Standardize some variable names
     dset = dset.rename(
@@ -264,7 +283,16 @@ def open_mfdataset(
         if bool(list_remove_extra_only):  # confirm list not empty
             dset = dset.drop_vars(list_remove_extra_only)
 
-    return dset
+    # resample to daily average
+    if daily:
+        print('Before daily average: ', dset)
+        dset2 = dset.resample(time='1D').mean()
+        print('After daily average: ', dset2)
+        dset2.attrs = dset.attrs
+    else:
+        dset2 = dset
+
+    return dset2
 
 
 def _get_keys(d):

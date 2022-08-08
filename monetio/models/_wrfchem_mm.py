@@ -56,6 +56,9 @@ def open_mfdataset(
     # Get dictionary of summed species for the mechanism of choice.
     dict_sum = dict_species_sums(mech=mech)
 
+    # determine if do hourly or daily comparison
+    daily = False
+
     list_calc_sum = []
     for var_sum in [
         "noy_gas",
@@ -70,6 +73,12 @@ def open_mfdataset(
         "pm25_om",
     ]:
         if var_sum in var_list:
+            if var_sum != 'noy_gas' and var_sum != 'nox':
+                print('Process PM2.5 composition')
+                # JianHe: resample model data to daily average for surface evaluation only (AQS comparsion)
+                if surf_only or surf_only_nc:  
+                    daily = True
+
             var_list.extend(dict_sum[var_sum])
             var_list.remove(var_sum)
             list_calc_sum.append(var_sum)
@@ -78,7 +87,7 @@ def open_mfdataset(
     for files in fname:
         wrflist.append(Dataset(files))
 
-    if not surf_only_nc:
+    if (not surf_only) and (not surf_only_nc):
         # Add some additional defaults needed for aircraft analysis
         # Turn this on also if need to convert aerosols
         var_list.append("pres")
@@ -88,23 +97,51 @@ def open_mfdataset(
         var_list.append("PSFC")
         # need to calculate surface pressure and dp and optionally dz here.
 
-    var_wrf_list = []
-    for var in var_list:
-        if var == "pres":  # Insert special versions.
-            var_wrf = getvar(
-                wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False, units="Pa"
-            )
-        elif var == "height":
-            var_wrf = getvar(
-                wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False, units="m"
-            )
-        elif var == "height_agl":
-            var_wrf = getvar(
-                wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False, units="m"
-            )
-        else:
-            var_wrf = getvar(wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False)
-        var_wrf_list.append(var_wrf)
+        var_wrf_list = []
+        for var in var_list:
+            if var == "pres":  # Insert special versions.
+                var_wrf = getvar(
+                    wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False, units="Pa"
+                )
+            elif var == "height":
+                var_wrf = getvar(
+                    wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False, units="m"
+                )
+            elif var == "height_agl":
+                var_wrf = getvar(
+                    wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False, units="m"
+                )
+            else:
+                var_wrf = getvar(wrflist, var, timeidx=ALL_TIMES, method="cat", squeeze=False)
+            var_wrf_list.append(var_wrf)
+
+    else:
+
+        if daily:
+            var_list.append("pres")
+            var_list.append("tk")
+
+        var_wrf_list = []
+        for var in var_list:
+            if var == "pres": #Insert special versions.
+                var_wrf = getvar(wrflist,var,timeidx=ALL_TIMES,method="cat",squeeze=False,units="Pa")[:,0,:,:]  # surface only
+            elif var == "T2" or var == "rh2":
+                var_wrf = getvar(wrflist,var,timeidx=ALL_TIMES,method="cat",squeeze=False)[:,:,:] # K or % 
+            elif var == "WS10":
+                var_wrf = getvar(wrflist,"uvmet10_wspd_wdir",timeidx=ALL_TIMES,method="cat",squeeze=False)[:,:,:][0,:,:,:] # m/s
+            elif var == "WD10":
+                var_wrf = getvar(wrflist,"uvmet10_wspd_wdir",timeidx=ALL_TIMES,method="cat",squeeze=False)[:,:,:][1,:,:,:] # deg
+            else:
+                var_wrf = getvar(wrflist,var,timeidx=ALL_TIMES,method="cat",squeeze=False)[:,0,:,:]  # surface only
+
+            if daily:
+                da_var = var_wrf.resample(Time='1D').mean()
+                da_var.attrs = var_wrf.attrs
+            else:
+                da_var = var_wrf
+            print('Diag wrfvar: ',da_var)
+
+            var_wrf_list.append(da_var)
 
     dset = xr.merge(var_wrf_list)
 
@@ -146,8 +183,8 @@ def open_mfdataset(
 
     # These sums and conversions are quite expensive and memory intensive,
     # so add option to shrink dataset to just surface when needed
-    if (not surf_only_nc) and surf_only:
-        dset = dset.isel(bottom_top=0).expand_dims("bottom_top", axis=1)
+    #if (not surf_only_nc) and surf_only and (not daily):
+    #    dset = dset.isel(bottom_top=0).expand_dims("bottom_top", axis=1)
 
     # convert all gas species to ppbv
     if convert_to_ppb:
@@ -189,8 +226,13 @@ def open_mfdataset(
     if "pm25_om" in list_calc_sum:
         dset = add_lazy_om_pm25(dset, dict_sum)
 
-    dset = dset.reset_index(["XTIME", "datetime"], drop=True)
-    if not surf_only_nc:
+    if 'datatime' in dset.coords:
+        dset = dset.reset_index(['XTIME','datetime'],drop=True)
+
+    if 'XTIME' in dset.coords:
+        dset = dset.reset_index('XTIME',drop=True)
+
+    if (not surf_only_nc) and (not surf_only):
         # Reset more variables
         dset = dset.rename(
             {
@@ -529,7 +571,6 @@ def add_lazy_om_pm25(d, dict_sum):
         )
     return d
 
-
 def add_multiple_lazy(dset, variables, weights=None):
     """Sums variables
 
@@ -572,6 +613,20 @@ def _predefined_mapping_tables(dset):
         dictionary defining default mapping tables
 
     """
+    to_aqs = {
+        'OZONE': 'o3',
+        'PM2.5': 'PM2_5_DRY',
+        'PM10': 'PM10',
+        'CO': 'co',
+        'SO2': 'so2',
+        'NO': 'no',
+        'NO2': 'no2',
+        'SO4f': 'pm25_so4',
+        'NO3f': 'pm25_no3',
+        'ECf': 'pm25_ec',
+        'OCf': 'pm25_oc',
+        'NH4+f': 'pm25_nh4',
+    }
     to_airnow = {
         "OZONE": "o3",
         "PM2.5": "PM2_5_DRY",
@@ -581,7 +636,13 @@ def _predefined_mapping_tables(dset):
         "NO": "no",
         "NO2": "no2",
     }
-    dset = dset.assign_attrs({"mapping_tables_to_airnow": to_airnow})
+
+    mapping_tables = {
+        'aqs': to_aqs,
+        'airnow': to_airnow,
+    }
+    dset = dset.assign_attrs({'mapping_tables': mapping_tables})
+
     return dset
 
 

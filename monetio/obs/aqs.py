@@ -433,7 +433,7 @@ class AQS:
         self.df = df
         self.df = self.change_units(self.df)
         if self.monitor_df is None:
-            self.monitor_df = read_monitor_file()
+            self.monitor_df = read_monitor_file(network)
             drop_monitor_cols = True
         else:
             drop_monitor_cols = False
@@ -444,16 +444,19 @@ class AQS:
         # else:
         #     monitor_drop = [u'datum']
         #     self.monitor_df.drop(monitor_drop, axis=1, inplace=True)
-        if network is not None:
-            monitors = self.monitor_df.loc[self.monitor_df.isin([network])].drop_duplicates(
-                subset=["siteid"]
-            )
-        else:
-            monitors = self.monitor_df.drop_duplicates(subset=["siteid"])
+        #if network is not None:
+        #    monitors = self.monitor_df.loc[self.monitor_df.networks.isin([network])].drop_duplicates(
+        #        subset=["siteid"]
+        #    )
+        #else:
+        #    monitors = self.monitor_df.drop_duplicates(subset=["siteid"])
+
+        monitors = self.monitor_df.drop_duplicates(subset=['siteid'])
+
         # AMC - merging only on siteid was causing latitude_x latitude_y to be
         # created.
         mlist = ["siteid"]
-        self.df = pd.merge(self.df, monitors, on=mlist, how="left")
+        self.df = pd.merge(self.df, monitors, on=mlist, how="inner")
         if daily:
             self.df["time"] = self.df.time_local - pd.to_timedelta(self.df.gmt_offset, unit="H")
         if pd.Series(self.df.columns).isin(["parameter_name"]).max():

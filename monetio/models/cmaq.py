@@ -33,6 +33,20 @@ def open_dataset(fname, earth_radius=6370000, convert_to_ppb=True, drop_duplicat
 
     """
 
+    # determine if do hourly or daily comparison
+    daily = False
+    if var_list is not None:
+        pm25_var = [
+            "PM25_EC",
+            "PM25_NH4",
+            "PM25_NO3",
+            "PM25_SO4",
+            "PM25_OC",
+            "PM25_OM",
+        ]
+        if any(xvar in var_list for xvar in pm25_var):
+            daily = True
+
     # open the dataset using xarray
     dset = xr.open_dataset(fname, **kwargs)
 
@@ -89,7 +103,13 @@ def open_dataset(fname, earth_radius=6370000, convert_to_ppb=True, drop_duplicat
             if "micrograms" in dset[i].attrs["units"]:
                 dset[i].attrs["units"] = r"$\mu g m^{-3}$"
 
-    return dset
+    if daily:
+        dset2 = dset.resample(time='1D').mean()
+        dset2.attrs = dset.attrs
+    else:
+        dset2 = dset
+
+    return dset2
 
 
 def open_mfdataset(

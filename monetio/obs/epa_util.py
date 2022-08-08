@@ -380,9 +380,11 @@ def read_monitor_file(network=None, airnow=False, drop_latlon=True):
         try:
             basedir = os.path.abspath(os.path.dirname(__file__))[:-3]
             fname = os.path.join(basedir, "data", "monitoring_site_locations.hdf")
-            if os.path.isfile(fname):
-                print("Monitor File Path: " + fname)
-                sss = pd.read_hdf(fname)
+            print("Monitor File Path: " + fname)
+            sss = pd.read_hdf(fname)
+            #if os.path.isfile(fname):
+            #    print("Monitor File Path: " + fname)
+            #    sss = pd.read_hdf(fname)
             # monitor_drop = ['state_code', u'county_code']
             # s.drop(monitor_drop, axis=1, inplace=True)
         except Exception:
@@ -490,8 +492,12 @@ def read_monitor_file(network=None, airnow=False, drop_latlon=True):
             airnow.drop(airnow_drop, axis=1, inplace=True)
             ss = pd.concat([s, airnow], ignore_index=True, sort=True)
             sss = convert_statenames_to_abv(ss).dropna(subset=["latitude", "longitude"])
+            sss['networks'] = sss.networks.fillna('UNSPECIFIED')
         if network is not None:
-            sss = sss.loc[sss.networks.isin([network])].drop_duplicates(subset=["siteid"])
+            #sss = sss.loc[sss.networks.isin([network])].drop_duplicates(subset=["siteid"])
+            sss = sss.loc[sss.networks.str.contains(network)].drop_duplicates(subset=["siteid"])
+        else:
+            sss = sss.drop_duplicates(subset=['siteid'])
         # Getting error that 'latitude' 'longitude' not contained in axis
         drop_latlon = False
         if drop_latlon:
